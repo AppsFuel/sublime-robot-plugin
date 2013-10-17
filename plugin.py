@@ -18,6 +18,7 @@ import sublime, sublime_plugin
 from keyword_parse import get_keyword_at_pos
 from string_populator import populate_testcase_file
 from robot_scanner import Scanner, detect_robot_regex
+from user_kw import user_kw
 import stdlib_keywords
 
 
@@ -137,10 +138,27 @@ class AutoSyntaxHighlight(sublime_plugin.EventListener):
 
 class AutoComplete(sublime_plugin.EventListener):
     def on_query_completions(self, view, prefix, locations):
-        if is_robot_format(view):
-            view_file = populate_testcase_file(view)
-            keywords = Scanner(view).scan_file(view_file)
-            lower_prefix = prefix.lower()
-            user_keywords = [(kw[0].keyword.name, kw[0].keyword.name) for kw in keywords.itervalues()
-                                if kw[0].keyword.name.lower().startswith(lower_prefix)]
-            return user_keywords
+        if not is_robot_format(view):
+            return
+
+        sel = view.sel()[0]
+        line = re.compile('\r|\n').split(view.substr(view.line(sel)))[0].replace('\t', '    ')
+        lower_prefix = view.substr(view.line(sel))[:view.rowcol(sel.begin())[1]].split('  ')[-1]
+        view_file = populate_testcase_file(view)
+        folders = view.window().folders()
+        scanner = Scanner(view)
+        keywords = scanner.scan_file(view_file)
+
+        for folder in folders:
+            for root, dirs, files in os.walk(folder):
+                for f in files:
+                    if f.endswith('.txt') and f != '__init__.txt':
+                        path = os.path.join(root, f)
+                        scanner.scan_without_resources(path, keywords)
+
+        keywords.update(stdlib_keywords.keywords)
+
+        user_keywords = user_kw(keywords, lower_prefix, prefix)
+
+        return user_keywords
+
